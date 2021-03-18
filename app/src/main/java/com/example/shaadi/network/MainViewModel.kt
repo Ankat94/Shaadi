@@ -6,13 +6,12 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.util.Log
 import android.widget.Toast
-import androidx.lifecycle.LiveData
-import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.*
 import com.example.assignment1.util.Coroutines
 import com.example.shaadi.models.Result
 import com.example.shaadi.models.User
 import com.example.shaadi.room.UserDatabase
+import com.example.shaadi.room.UserRepository
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
@@ -23,11 +22,13 @@ class MainViewModel(val context: Context): ViewModel() {
     var liveData: LiveData<List<User>> = mutableList
     var newMutable : MutableLiveData<List<User>> = MutableLiveData()
     var newLiveData: LiveData<List<User>> = newMutable
-    var userDao = UserDatabase.buildDatabase(context).userDao()
+
+    val userRepo = UserRepository(context)
+
 
     fun getUsers() {
         Coroutines.IO {
-            val users = userDao.getAllUsers()
+            val users = userRepo.getAllUsers()
             if (!(users.isNotEmpty())) {
                 fetchUsers()
             } else {
@@ -37,48 +38,39 @@ class MainViewModel(val context: Context): ViewModel() {
     }
 
     fun changeStatus(user: User) {
-        userDao.updateUser(user)
+        userRepo.updateUser(user)
     }
 
-    fun fetchUsers() {
+    fun fetchUsers(): LiveData<List<User>> {
         Coroutines.IO {
 
-            if (!(checkNetWorkConnection(context))) {
+            if (!(CheckInternet.Connection(context))) {
                 Coroutines.Main {
                     Toast.makeText(context,"Check Internet Connection.",Toast.LENGTH_SHORT).show()
                 }
             }
             else {
-
-                MyApi.invoke().getData().enqueue(object : Callback<Result> {
-                    override fun onResponse(call: Call<Result>, response: Response<Result>) {
-                        var users = ArrayList<User>()
-                        for (r in response.body()!!.results) {
-                            var user = User(0,r.gender,r.name.title,r.name.first,r.name.last,r.location.city,r.location.state,r.location.country,r.picture.large,r.picture.medium,r.picture.thumbnail,r.dob.date,r.dob.age,0)
-                            userDao.insertUser(user)
-                            users.add(user)
-                        }
-                        if (users.size > 0) {
-                            newMutable.value = users
-                        }
+                val response = userRepo.fetchUser()
+                if (response.isSuccessful) {
+                    var users = ArrayList<User>()
+                    for (r in response.body()!!.results) {
+                        var user = User(0,r.gender,r.name.title,r.name.first,r.name.last,r.location.city,r.location.state,r.location.country,r.picture.large,r.picture.medium,r.picture.thumbnail,r.dob.date,r.dob.age,0)
+                        userRepo.insertUser(user)
+                        users.add(user)
                     }
-
-                    override fun onFailure(call: Call<Result>, t: Throwable) {
+                    if (users.size > 0) {
+                        newMutable.postValue(users)
+                    }
+                }
+                else {
+                    Coroutines.Main {
                         Toast.makeText(context,"Something Went Wrong.",Toast.LENGTH_SHORT).show()
                     }
-
-                })
+                }
             }
-
-
         }
+        return newMutable
     }
 
-    @SuppressLint("ServiceCast")
-    fun checkNetWorkConnection(context: Context): Boolean{
-        val connectivityManager= context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val networkInfo=connectivityManager.activeNetworkInfo
-        return  networkInfo!=null && networkInfo.isConnected
-    }
 
 }
